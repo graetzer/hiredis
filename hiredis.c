@@ -43,6 +43,8 @@
 #include "net.h"
 #include "sds.h"
 
+#include <klee/klee.h>
+
 static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
 static void *createArrayObject(const redisReadTask *task, int elements);
@@ -792,14 +794,21 @@ int redisEnableKeepAlive(redisContext *c) {
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
 int redisBufferRead(redisContext *c) {
-    char buf[1024*16];
+#define _KSIZE  18//1024*16
+    char buf[_KSIZE];
     int nread;
+
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
+  
+    // Make the input symbolic. 
+    klee_make_symbolic(buf, sizeof buf, "buf");
+    buf[_KSIZE - 2] = '\r';
+    buf[_KSIZE - 1] = '\n';
 
-    nread = read(c->fd,buf,sizeof(buf));
+    nread = _KSIZE;//;klee_range(0, _KSIZE, "bufn");//read(c->fd,buf,sizeof(buf));
     if (nread == -1) {
         if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
@@ -836,7 +845,7 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
 
     if (sdslen(c->obuf) > 0) {
-        nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
+        nwritten = write(STDOUT_FILENO,c->obuf,sdslen(c->obuf));//write(c->fd,c->obuf,sdslen(c->obuf));
         if (nwritten == -1) {
             if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
                 /* Try again later */
